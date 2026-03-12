@@ -238,11 +238,19 @@ async def create_product(req: CreateProductRequest) -> Product:
         "cost_price": req.cost_price,
         "sale_price": req.sale_price,
     }
-    response = supabase_client.table("products").insert(payload).execute()
-    if response.error:
-        raise HTTPException(status_code=500, detail=str(response.error))
+    # Use a local variable name other than `response` to avoid
+    # shadowing FastAPI's response type and confusing pydantic.  The
+    # Supabase client returns a PostgrestResponse-like object with
+    # `.data` and `.status_code` attributes. Some versions may not
+    # implement `.error`, so we avoid accessing it directly.
+    insert_res = supabase_client.table("products").insert(payload).execute()
+    # If the insertion failed, PostgrestResponse returns an empty
+    # `data` or sets `status_code` outside the 200 range. Check for
+    # missing data rather than relying on a non‑existent `error` attribute.
+    if not insert_res or not insert_res.data:
+        raise HTTPException(status_code=500, detail="Failed to insert product")
     # Insert returns a list of inserted rows. Take the first one.
-    row = response.data[0]
+    row = insert_res.data[0]
     return _row_to_product(row)
 
 
@@ -251,15 +259,21 @@ async def create_product(req: CreateProductRequest) -> Product:
 @app.get("/product-candidates", response_model=List[ProductCandidate])
 async def list_product_candidates() -> List[ProductCandidate]:
     """List all product candidates ordered by creation time (newest first)."""
-    response = (
+    # Query the product_candidates table. Use a local variable name
+    # other than `response` to avoid confusion with FastAPI's response.
+    query_res = (
         supabase_client.table("product_candidates")
-        .select("id,title,source,supplier_url,category,cost_price,suggested_sale_price,score,status,notes,created_at")
+        .select(
+            "id,title,source,supplier_url,category,cost_price,suggested_sale_price,score,status,notes,created_at"
+        )
         .order("created_at", desc=True)
         .execute()
     )
-    if response.error:
-        raise HTTPException(status_code=500, detail=str(response.error))
-    rows = response.data or []
+    # If the query didn't return a list, raise an HTTP 500. Do not rely
+    # on a `.error` property which may not exist on the response.
+    if not query_res:
+        raise HTTPException(status_code=500, detail="Failed to fetch product candidates")
+    rows = query_res.data or []
     return [_row_to_candidate(row) for row in rows]
 
 
@@ -285,10 +299,10 @@ async def create_product_candidate(req: ProductCandidateCreate) -> ProductCandid
         "status": "new",
         "notes": req.notes,
     }
-    response = supabase_client.table("product_candidates").insert(payload).execute()
-    if response.error:
-        raise HTTPException(status_code=500, detail=str(response.error))
-    row = response.data[0]
+    insert_res = supabase_client.table("product_candidates").insert(payload).execute()
+    if not insert_res or not insert_res.data:
+        raise HTTPException(status_code=500, detail="Failed to insert product candidate")
+    row = insert_res.data[0]
     return _row_to_candidate(row)
 
 
@@ -296,18 +310,16 @@ async def create_product_candidate(req: ProductCandidateCreate) -> ProductCandid
 async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdate) -> ProductCandidate:
     """Update the status and/or notes of a product candidate."""
     payload = {"status": req.status, "notes": req.notes}
-    response = (
+    update_res = (
         supabase_client.table("product_candidates")
         .update(payload)
         .eq("id", candidate_id)
         .execute()
     )
-    if response.error:
-        raise HTTPException(status_code=500, detail=str(response.error))
+    if not update_res:
+        raise HTTPException(status_code=500, detail="Failed to update candidate")
     # The update may return no data if the row didn't exist
-    if not response.data:
+    if not update_res.data:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    row = response.data[0]
+    row = update_res.data[0]
     return _row_to_candidate(row)
-    # Version bump to trigger redeploy
-    
