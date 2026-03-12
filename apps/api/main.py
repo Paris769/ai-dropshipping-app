@@ -309,3 +309,5 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
         raise HTTPException(status_code=404, detail="Candidate not found")
     row = response.data[0]
     return _row_to_candidate(row)
+    # Version bump to trigger redeploy
+    
