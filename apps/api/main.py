@@ -79,11 +79,28 @@ class Product(BaseModel):
     sale_price: float
     score: Optional[float] = None
 
+    # Track publication status of the product.  New products created
+    # from approved candidates will be set to "draft" by default.
+    status: Optional[str] = None
+
 
 class CreateProductRequest(BaseModel):
     title: str = Field(..., description="Title or name of the product")
     cost_price: float = Field(..., ge=0, description="Cost from the supplier")
     sale_price: float = Field(..., ge=0, description="Retail price")
+
+
+class ProductUpdate(BaseModel):
+    """Payload for updating an existing product.
+
+    Only mutable fields should be included here.  Currently we allow
+    changing the sale price and the publication status (e.g. 'draft',
+    'published').  Additional fields can be added in the future as
+    business requirements evolve.
+    """
+
+    sale_price: Optional[float] = Field(None, ge=0, description="New retail price")
+    status: Optional[str] = Field(None, description="Publication status: draft or published")
 
 
 # ---------------------------------------------------------------------------
@@ -186,13 +203,19 @@ def score_candidate(cost_price: float, category: Optional[str], title: str) -> t
 # models or raise HTTP errors.
 
 def _row_to_product(row: dict) -> Product:
-    """Convert a row from the ``products`` table into a Product model."""
+    """Convert a row from the ``products`` table into a Product model.
+
+    The ``products`` table may include additional fields such as ``status``.
+    When present, these are passed through to the Product model.  Unknown
+    fields are ignored.
+    """
     return Product(
         id=row["id"],
         title=row["title"],
         cost_price=float(row["cost_price"]),
         sale_price=float(row["sale_price"]),
         score=float(row["score"]) if row.get("score") is not None else None,
+        status=row.get("status"),
     )
 
 
@@ -221,7 +244,7 @@ async def list_products() -> List[Product]:
     # additional fields, include them here.
     response = (
         supabase_client.table("products")
-        .select("id,title,cost_price,sale_price,score")
+        .select("id,title,cost_price,sale_price,score,status")
         .execute()
     )
     if response.error:
@@ -237,6 +260,8 @@ async def create_product(req: CreateProductRequest) -> Product:
         "title": req.title,
         "cost_price": req.cost_price,
         "sale_price": req.sale_price,
+        # New products start as drafts by default unless overridden.
+        "status": "draft",
     }
     # Use a local variable name other than `response` to avoid
     # shadowing FastAPI's response type and confusing pydantic.  The
@@ -251,6 +276,37 @@ async def create_product(req: CreateProductRequest) -> Product:
         raise HTTPException(status_code=500, detail="Failed to insert product")
     # Insert returns a list of inserted rows. Take the first one.
     row = insert_res.data[0]
+    return _row_to_product(row)
+
+
+# ---------------------------------------------------------------------------
+# Product update endpoint
+@app.patch("/products/{product_id}", response_model=Product)
+async def update_product(product_id: int, req: ProductUpdate) -> Product:
+    """Update mutable fields of a product.
+
+    This endpoint allows changing the sale price and publication status.  It
+    merges provided values onto the existing row.  Unknown products
+    return 404.
+    """
+    # Build the update payload dynamically, ignoring None values.
+    payload: dict = {}
+    if req.sale_price is not None:
+        payload["sale_price"] = req.sale_price
+    if req.status is not None:
+        payload["status"] = req.status
+    if not payload:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+    # Execute the update
+    update_res = (
+        supabase_client.table("products")
+        .update(payload)
+        .eq("id", product_id)
+        .execute()
+    )
+    if not update_res or not update_res.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    row = update_res.data[0]
     return _row_to_product(row)
 
 
@@ -308,7 +364,13 @@ async def create_product_candidate(req: ProductCandidateCreate) -> ProductCandid
 
 @app.patch("/product-candidates/{candidate_id}", response_model=ProductCandidate)
 async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdate) -> ProductCandidate:
-    """Update the status and/or notes of a product candidate."""
+    """Update the status and/or notes of a product candidate.
+
+    When a candidate is approved, a draft product is automatically
+    created in the ``products`` table using the suggested sale price
+    computed during candidate creation.  The candidate itself remains
+    unchanged except for its status and notes.
+    """
     payload = {"status": req.status, "notes": req.notes}
     update_res = (
         supabase_client.table("product_candidates")
@@ -318,8 +380,35 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
     )
     if not update_res:
         raise HTTPException(status_code=500, detail="Failed to update candidate")
-    # The update may return no data if the row didn't exist
     if not update_res.data:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    row = update_res.data[0]
-    return _row_to_candidate(row)
+    candidate_row = update_res.data[0]
+    # If the candidate is now approved, create a draft product
+    if req.status.lower() == "approved":
+        # Fetch the full candidate row to access suggested_sale_price
+        query_res = (
+            supabase_client.table("product_candidates")
+            .select(
+                "id,title,cost_price,suggested_sale_price,score"
+            )
+            .eq("id", candidate_id)
+            .single()
+            .execute()
+        )
+        if query_res and query_res.data:
+            data = query_res.data
+            sale_price = (
+                float(data.get("suggested_sale_price"))
+                if data.get("suggested_sale_price") is not None
+                else float(data["cost_price"]) * 2.8
+            )
+            product_payload = {
+                "title": data["title"],
+                "cost_price": float(data["cost_price"]),
+                "sale_price": sale_price,
+                "score": float(data.get("score")) if data.get("score") is not None else None,
+                "status": "draft",
+            }
+            # Insert the draft product; ignore result if insertion fails
+            supabase_client.table("products").insert(product_payload).execute()
+    return _row_to_candidate(candidate_row)
