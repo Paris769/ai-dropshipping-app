@@ -112,3 +112,44 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     metadata JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS product_candidates (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  title TEXT NOT NULL,
+  source TEXT,
+  supplier_url TEXT,
+  category TEXT,
+  cost_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  suggested_sale_price NUMERIC(10,2),
+  score INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'new',
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+EATE INDEX IF NOT EXISTS idx_product_candidates_status
+ON public.product_candidates(status);
+
+CREATE INDECRX IF NOT EXISTS idx_product_candidates_created_at
+ON public.product_candidates(created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS product_candidates (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  title TEXT NOT NULL,
+  source TEXT,
+  supplier_url TEXT,
+  category TEXT,
+  cost_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  suggested_sale_price NUMERIC(10,2),
+  score INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'new',
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_candidates_status
+ON public.product_candidates(status);
+
+CREATE INDEX IF NOT EXISTS idx_product_candidates_created_at
+ON public.product_candidates(created_at DESC);
