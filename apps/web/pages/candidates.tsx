@@ -85,6 +85,23 @@ export default function CandidatesPage() {
     }
   }
 
+  // Update candidate status (e.g. approve or reject)
+  async function updateCandidateStatus(id: number, newStatus: string) {
+    try {
+      const res = await fetch(`${API_BASE}/product-candidates/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error("Update candidate failed");
+      // Reload list after successful update
+      loadCandidates();
+    } catch (err) {
+      console.error(err);
+      alert("Errore durante l'aggiornamento dello stato del candidato.");
+    }
+  }
+
   return (
     <div style={{ padding: "1rem", maxWidth: "800px", margin: "0 auto" }}>
       <h1 style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>Candidati Prodotti</h1>
@@ -146,6 +163,23 @@ export default function CandidatesPage() {
           <p>Stato: {item.status}</p>
           <p>Note: {item.notes || "-"}</p>
           <p style={{ fontSize: "0.8rem", color: "#666" }}>Creato il {new Date(item.created_at).toLocaleString()}</p>
+          {/* Action buttons for approving or rejecting a candidate */}
+          <div style={{ marginTop: "0.5rem" }}>
+            <button
+              onClick={() => updateCandidateStatus(item.id, "approved")}
+              disabled={item.status === "approved"}
+              style={{ marginRight: "0.5rem", padding: "0.3rem 0.6rem", cursor: item.status === "approved" ? "default" : "pointer" }}
+            >
+              Approva
+            </button>
+            <button
+              onClick={() => updateCandidateStatus(item.id, "rejected")}
+              disabled={item.status === "rejected"}
+              style={{ padding: "0.3rem 0.6rem", cursor: item.status === "rejected" ? "default" : "pointer" }}
+            >
+              Rifiuta
+            </button>
+          </div>
         </div>
       ))}
     </div>
