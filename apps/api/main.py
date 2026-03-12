@@ -26,6 +26,7 @@ import os
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
 
@@ -47,6 +48,18 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI(title="AI Dropshipping API", version="0.2.0")
+
+# Configure CORS so that the frontend hosted on a different origin (e.g. Vercel)
+# can communicate with this API without browser restrictions.  In a production
+# deployment you may wish to restrict the allowed origins to only your
+# Vercel domain.  For simplicity here we allow all origins.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class HealthResponse(BaseModel):
