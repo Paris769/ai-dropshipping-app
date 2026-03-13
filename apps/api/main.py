@@ -410,7 +410,7 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
                 "status": "draft",
             }
             # Insert the draft product; ignore result if insertion fails
-                   supabase_client.table("products").insert(product_payload).execute()
+              supe_client.table("products").insert(product_payload).execute()
 
 
 # Order models and endpoints
@@ -458,7 +458,7 @@ def create_order(req: OrderCreate):
 
 @app.patch("/orders/{order_id}")
 def update_order(order_id: int, req: OrderUpdate):
-        update_data = {}
+       
 
     if req.status is not None:
         update_data["status"] = req.status
@@ -476,4 +476,6 @@ def update_order(order_id: int, req: OrderUpdate):
     )
     return _row_to_order(updated)
 
-   _
+ _
+
+
