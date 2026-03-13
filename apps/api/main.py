@@ -476,4 +476,4 @@ def update_order(order_id: int, req: OrderUpdate):
     )
     return _row_to_order(updated)
 
-    return _row_to_candidate(candidate_row)
+     _
