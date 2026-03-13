@@ -410,5 +410,70 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
                 "status": "draft",
             }
             # Insert the draft product; ignore result if insertion fails
-            supabase_client.table("products").insert(product_payload).execute()
+           supabase_client.table("products").insert(product_payload).execute()
+
+
+# Order models and endpoints
+class OrderCreate(BaseModel):
+    product_id: int
+    quantity: int
+
+class OrderUpdate(BaseModel):
+    status: str | None = None
+    tracking_code: str | None = None
+
+class Order(BaseModel):
+    id: int
+    product_id: int
+    quantity: int
+    status: str
+    tracking_code: str | None = None
+    created_at: str
+
+def _row_to_order(row: dict) -> Order:
+    return Order(
+        id=row["id"],
+        product_id=row["product_id"],
+        quantity=row["quantity"],
+        status=row["status"],
+        tracking_code=row.get("tracking_code"),
+        created_at=row["created_at"],
+    )
+
+@app.get("/orders")
+def list_orders():
+    res = supabase_client.table("orders").select("*").execute()
+    return [_row_to_order(item) for item in (res.data or [])]
+
+@app.post("/orders")
+def create_order(req: OrderCreate):
+    new_row = {
+        "product_id": req.product_id,
+        "quantity": req.quantity,
+        "status": "pending",
+    }
+    res = supabase_client.table("orders").insert(new_row).execute()
+    row = res.data[0]
+    return _row_to_order(row)
+
+@app.patch("/orders/{order_id}")
+def update_order(order_id: int, req: OrderUpdate):
+        update_data = {}
+
+    if req.status is not None:
+        update_data["status"] = req.status
+    if req.tracking_code is not None:
+        update_data["tracking_code"] = req.tracking_code
+    if update_data:
+        supabase_client.table("orders").update(update_data).eq("id", order_id).execute()
+    updated = (
+        supabase_client.table("orders")
+        .select("*")
+        .eq("id", order_id)
+        .single()
+        .execute()
+        .data
+    )
+    return _row_to_order(updated)
+
     return _row_to_candidate(candidate_row)
