@@ -1,44 +1,16 @@
-"""
-FastAPI application for the AI dropshipping backend.
+from __future__ import annotations
 
-This module exposes a small API surface for the AI dropshipping project.
-It provides a health check endpoint and basic CRUD operations for
-products. In this revision, the in‑memory product store has been
-replaced with real database interactions using Supabase. Environment
-variables ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY`` (or
-``SUPABASE_KEY``) must be defined so that the application can
-communicate with the Supabase instance. If these variables are not
-present, the application will fail to start.
-
-Endpoints:
-
-* ``GET /health`` — returns ``{"status": "ok"}`` if the service is running.
-* ``GET /products`` — lists all products from the ``products`` table.
-* ``POST /products`` — creates a new product in the ``products`` table.
-
-This implementation relies on the `supabase` Python client. If you
-modify the schema, adjust the queries accordingly. For example,
-additional fields such as ``supplier_id`` or ``status`` can be passed
-through to the Supabase insert call.
-"""
-
+from typing import Any
 import os
-from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from supabase import create_client, Client
+from supabase import Client, create_client
 
-# Initialise the Supabase client using environment variables.  This
-# requires ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY`` (or
-# ``SUPABASE_KEY``) to be set in the environment.  The service role
-# key grants full access to the database and should be used only on
-# the server side.
-SUPABASE_URL: Optional[str] = os.getenv("SUPABASE_URL")
-SUPABASE_KEY: Optional[str] = (
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
-)
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError(
@@ -47,12 +19,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = FastAPI(title="AI Dropshipping API", version="0.3.0")
+app = FastAPI(title="AI Dropshipping API", version="0.5.0")
 
-# Configure CORS so that the frontend hosted on a different origin (e.g. Vercel)
-# can communicate with this API without browser restrictions.  In a production
-# deployment you may wish to restrict the allowed origins to only your
-# Vercel domain.  For simplicity here we allow all origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,13 +31,7 @@ app.add_middleware(
 
 
 class HealthResponse(BaseModel):
-    status: str = Field(..., description="Status of the service, 'ok' if healthy")
-
-
-@app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    """Return a simple status object indicating the service is up."""
-    return HealthResponse(status="ok")
+    status: str = Field(..., description="Service status")
 
 
 class Product(BaseModel):
@@ -77,138 +39,127 @@ class Product(BaseModel):
     title: str
     cost_price: float
     sale_price: float
-    score: Optional[float] = None
-
-    # Track publication status of the product.  New products created
-    # from approved candidates will be set to "draft" by default.
-    status: Optional[str] = None
+    score: float | None = None
+    status: str | None = None
+    supplier_id: int | None = None
 
 
 class CreateProductRequest(BaseModel):
-    title: str = Field(..., description="Title or name of the product")
-    cost_price: float = Field(..., ge=0, description="Cost from the supplier")
+    title: str = Field(..., description="Product title")
+    cost_price: float = Field(..., ge=0, description="Supplier cost")
     sale_price: float = Field(..., ge=0, description="Retail price")
+    supplier_id: int | None = Field(None, description="Optional supplier id")
 
 
 class ProductUpdate(BaseModel):
-    """Payload for updating an existing product.
-
-    Only mutable fields should be included here.  Currently we allow
-    changing the sale price and the publication status (e.g. 'draft',
-    'published').  Additional fields can be added in the future as
-    business requirements evolve.
-    """
-
-    sale_price: Optional[float] = Field(None, ge=0, description="New retail price")
-    status: Optional[str] = Field(None, description="Publication status: draft or published")
+    sale_price: float | None = Field(None, ge=0)
+    status: str | None = None
+    supplier_id: int | None = None
 
 
-# ---------------------------------------------------------------------------
-# Models for product candidates
-#
 class ProductCandidateCreate(BaseModel):
-    """Payload for creating a new product candidate.
-
-    This structure mirrors the fields in the product_candidates table.  The
-    scoring function uses cost_price and category/title to compute a score
-    and suggested sale price.  See ``score_candidate`` below for the logic.
-    """
-
-    title: str = Field(..., description="Name of the proposed product")
-    source: Optional[str] = Field(None, description="Where the product idea came from")
-    supplier_url: Optional[str] = Field(None, description="URL of the supplier or listing")
-    category: Optional[str] = Field(None, description="Category of the product, e.g. 'Home', 'Fitness'")
-    cost_price: float = Field(..., ge=0, description="Purchase cost of the product")
-    notes: Optional[str] = Field(None, description="Additional notes or rationale for the idea")
+    title: str
+    source: str | None = None
+    supplier_url: str | None = None
+    category: str | None = None
+    cost_price: float = Field(..., ge=0)
+    notes: str | None = None
 
 
 class ProductCandidateUpdate(BaseModel):
-    """Payload for updating an existing candidate.
-
-    Only the status and notes can be changed by supervisors.  Other fields
-    remain immutable once created.
-    """
-
-    status: str = Field(..., description="Workflow status: new, reviewed, approved, rejected")
-    notes: Optional[str] = Field(None, description="Reviewer notes or rationale")
+    status: str
+    notes: str | None = None
 
 
 class ProductCandidate(BaseModel):
-    """Representation of a product candidate stored in the database."""
-
     id: int
     title: str
-    source: Optional[str] = None
-    supplier_url: Optional[str] = None
-    category: Optional[str] = None
+    source: str | None = None
+    supplier_url: str | None = None
+    category: str | None = None
     cost_price: float
-    suggested_sale_price: Optional[float] = None
+    suggested_sale_price: float | None = None
     score: int
     status: str
-    notes: Optional[str] = None
+    notes: str | None = None
     created_at: str
 
 
-# ---------------------------------------------------------------------------
-# Scoring logic for product candidates
-#
-def score_candidate(cost_price: float, category: Optional[str], title: str) -> tuple[int, float]:
-    """Compute a score and suggested sale price for a product candidate.
+class Supplier(BaseModel):
+    id: int
+    name: str
+    contact_info: str | None = None
+    shipping_time_days: int | None = None
+    reliability_score: float | None = None
+    created_at: str | None = None
 
-    The scoring algorithm is intentionally simple.  It awards points for low
-    cost_price, desirable categories and keywords in the title.  It also
-    computes a suggested sale price by applying a multiplier to the cost_price
-    and adding a margin.  The returned score is clamped between 0 and 100.
-    """
+
+class SupplierCreate(BaseModel):
+    name: str
+    contact_info: str | None = None
+    shipping_time_days: int | None = Field(None, ge=0)
+    reliability_score: float | None = Field(None, ge=0, le=10)
+
+
+class SupplierUpdate(BaseModel):
+    name: str | None = None
+    contact_info: str | None = None
+    shipping_time_days: int | None = Field(None, ge=0)
+    reliability_score: float | None = Field(None, ge=0, le=10)
+
+
+class OrderCreate(BaseModel):
+    product_id: int
+    quantity: int = Field(..., ge=1)
+
+
+class OrderUpdate(BaseModel):
+    status: str | None = None
+    tracking_code: str | None = None
+
+
+class Order(BaseModel):
+    id: int
+    product_id: int
+    quantity: int
+    status: str
+    tracking_code: str | None = None
+    created_at: str
+
+
+def _response_data(response: Any) -> Any:
+    return getattr(response, "data", None)
+
+
+def score_candidate(cost_price: float, category: str | None, title: str) -> tuple[int, float]:
     score = 50
 
-    # Reward cheaper products
     if cost_price <= 10:
         score += 15
     elif cost_price <= 20:
         score += 8
 
-    # Reward certain categories
     if category:
         cat = category.lower()
-        if cat in {"home", "kitchen", "fitness", "beauty", "pets", "gadgets"}:
+        if cat in ["home", "kitchen", "fitness", "beauty", "pets", "gadgets"]:
             score += 10
 
-    # Reward keywords in the title
     title_lower = title.lower()
-    for kw in ["portable", "mini", "smart", "usb", "travel", "pet"]:
-        if kw in title_lower:
+    for keyword in ["portable", "mini", "smart", "usb", "travel", "pet"]:
+        if keyword in title_lower:
             score += 10
             break
 
-    # Compute a simple suggested sale price: cost_price multiplied by 2.8
     suggested_sale_price = round(cost_price * 2.8, 2)
 
-    # Reward high margin
     if suggested_sale_price - cost_price >= 15:
-        score += 15
+        score += 5
 
-    # Clamp to 0–100
     score = max(0, min(score, 100))
     return score, suggested_sale_price
 
 
-
-# ---------------------------------------------------------------------------
-# Database helper functions
-#
-# Supabase returns query results as lists of dictionaries under the
-# ``data`` attribute.  If an error occurs the ``error`` attribute will
-# contain details.  These helpers convert the raw data into Pydantic
-# models or raise HTTP errors.
-
-def _row_to_product(row: dict) -> Product:
-    """Convert a row from the ``products`` table into a Product model.
-
-    The ``products`` table may include additional fields such as ``status``.
-    When present, these are passed through to the Product model.  Unknown
-    fields are ignored.
-    """
+def _row_to_product(row: dict[str, Any]) -> Product:
     return Product(
         id=row["id"],
         title=row["title"],
@@ -216,12 +167,11 @@ def _row_to_product(row: dict) -> Product:
         sale_price=float(row["sale_price"]),
         score=float(row["score"]) if row.get("score") is not None else None,
         status=row.get("status"),
+        supplier_id=row.get("supplier_id"),
     )
 
 
-# Helper to convert a row from the product_candidates table
-def _row_to_candidate(row: dict) -> ProductCandidate:
-    """Convert a database row into a ProductCandidate model."""
+def _row_to_candidate(row: dict[str, Any]) -> ProductCandidate:
     return ProductCandidate(
         id=row["id"],
         title=row["title"],
@@ -229,7 +179,11 @@ def _row_to_candidate(row: dict) -> ProductCandidate:
         supplier_url=row.get("supplier_url"),
         category=row.get("category"),
         cost_price=float(row["cost_price"]),
-        suggested_sale_price=float(row["suggested_sale_price"]) if row.get("suggested_sale_price") is not None else None,
+        suggested_sale_price=(
+            float(row["suggested_sale_price"])
+            if row.get("suggested_sale_price") is not None
+            else None
+        ),
         score=int(row["score"]),
         status=row["status"],
         notes=row.get("notes"),
@@ -237,86 +191,100 @@ def _row_to_candidate(row: dict) -> ProductCandidate:
     )
 
 
-@app.get("/products", response_model=List[Product])
-async def list_products() -> List[Product]:
-    """List all products currently registered in the system."""
-    # Query all columns required for the Product model.  If you need
-    # additional fields, include them here.
+def _row_to_supplier(row: dict[str, Any]) -> Supplier:
+    return Supplier(
+        id=row["id"],
+        name=row["name"],
+        contact_info=row.get("contact_info"),
+        shipping_time_days=row.get("shipping_time_days"),
+        reliability_score=(
+            float(row["reliability_score"])
+            if row.get("reliability_score") is not None
+            else None
+        ),
+        created_at=row.get("created_at"),
+    )
+
+
+def _row_to_order(row: dict[str, Any]) -> Order:
+    return Order(
+        id=row["id"],
+        product_id=row["product_id"],
+        quantity=row["quantity"],
+        status=row["status"],
+        tracking_code=row.get("tracking_code"),
+        created_at=row["created_at"],
+    )
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.get("/products", response_model=list[Product])
+def list_products() -> list[Product]:
     response = (
         supabase_client.table("products")
-        .select("id,title,cost_price,sale_price,score,status")
+        .select("id,title,cost_price,sale_price,score,status,supplier_id")
         .execute()
     )
-    if response.error:
-        raise HTTPException(status_code=500, detail=str(response.error))
-    rows = response.data or []
+    rows = _response_data(response)
+    if rows is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch products")
     return [_row_to_product(row) for row in rows]
 
 
 @app.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)
-async def create_product(req: CreateProductRequest) -> Product:
-    """Create a new product in the database."""
-    payload = {
+def create_product(req: CreateProductRequest) -> Product:
+    payload: dict[str, Any] = {
         "title": req.title,
         "cost_price": req.cost_price,
         "sale_price": req.sale_price,
-        # New products start as drafts by default unless overridden.
         "status": "draft",
     }
-    # Use a local variable name other than `response` to avoid
-    # shadowing FastAPI's response type and confusing pydantic.  The
-    # Supabase client returns a PostgrestResponse-like object with
-    # `.data` and `.status_code` attributes. Some versions may not
-    # implement `.error`, so we avoid accessing it directly.
+    if req.supplier_id is not None:
+        payload["supplier_id"] = req.supplier_id
+
     insert_res = supabase_client.table("products").insert(payload).execute()
-    # If the insertion failed, PostgrestResponse returns an empty
-    # `data` or sets `status_code` outside the 200 range. Check for
-    # missing data rather than relying on a non‑existent `error` attribute.
-    if not insert_res or not insert_res.data:
+    rows = _response_data(insert_res)
+    if not rows:
         raise HTTPException(status_code=500, detail="Failed to insert product")
-    # Insert returns a list of inserted rows. Take the first one.
-    row = insert_res.data[0]
-    return _row_to_product(row)
+    return _row_to_product(rows[0])
 
 
-# ---------------------------------------------------------------------------
-# Product update endpoint
 @app.patch("/products/{product_id}", response_model=Product)
-async def update_product(product_id: int, req: ProductUpdate) -> Product:
-    """Update mutable fields of a product.
+def update_product(product_id: int, req: ProductUpdate) -> Product:
+    payload: dict[str, Any] = {}
 
-    This endpoint allows changing the sale price and publication status.  It
-    merges provided values onto the existing row.  Unknown products
-    return 404.
-    """
-    # Build the update payload dynamically, ignoring None values.
-    payload: dict = {}
     if req.sale_price is not None:
         payload["sale_price"] = req.sale_price
     if req.status is not None:
         payload["status"] = req.status
+    if req.supplier_id is not None:
+        payload["supplier_id"] = req.supplier_id
+
     if not payload:
         raise HTTPException(status_code=400, detail="No update fields provided")
-    # Execute the update
-    update_res = (
+
+    supabase_client.table("products").update(payload).eq("id", product_id).execute()
+
+    fetch_res = (
         supabase_client.table("products")
-        .update(payload)
+        .select("id,title,cost_price,sale_price,score,status,supplier_id")
         .eq("id", product_id)
+        .single()
         .execute()
     )
-    if not update_res or not update_res.data:
+    row = _response_data(fetch_res)
+    if not row:
         raise HTTPException(status_code=404, detail="Product not found")
-    row = update_res.data[0]
+
     return _row_to_product(row)
 
 
-# ---------------------------------------------------------------------------
-# Product candidate endpoints
-@app.get("/product-candidates", response_model=List[ProductCandidate])
-async def list_product_candidates() -> List[ProductCandidate]:
-    """List all product candidates ordered by creation time (newest first)."""
-    # Query the product_candidates table. Use a local variable name
-    # other than `response` to avoid confusion with FastAPI's response.
+@app.get("/product-candidates", response_model=list[ProductCandidate])
+def list_product_candidates() -> list[ProductCandidate]:
     query_res = (
         supabase_client.table("product_candidates")
         .select(
@@ -325,25 +293,24 @@ async def list_product_candidates() -> List[ProductCandidate]:
         .order("created_at", desc=True)
         .execute()
     )
-    # If the query didn't return a list, raise an HTTP 500. Do not rely
-    # on a `.error` property which may not exist on the response.
-    if not query_res:
+    rows = _response_data(query_res)
+    if rows is None:
         raise HTTPException(status_code=500, detail="Failed to fetch product candidates")
-    rows = query_res.data or []
     return [_row_to_candidate(row) for row in rows]
 
 
 @app.post(
-    "/product-candidates", response_model=ProductCandidate, status_code=status.HTTP_201_CREATED
+    "/product-candidates",
+    response_model=ProductCandidate,
+    status_code=status.HTTP_201_CREATED,
 )
-async def create_product_candidate(req: ProductCandidateCreate) -> ProductCandidate:
-    """Create a new product candidate and compute its score and suggested price."""
-    # Compute score and suggested sale price
+def create_product_candidate(req: ProductCandidateCreate) -> ProductCandidate:
     score, suggested_sale_price = score_candidate(
         cost_price=req.cost_price,
         category=req.category,
         title=req.title,
     )
+
     payload = {
         "title": req.title,
         "source": req.source,
@@ -355,129 +322,176 @@ async def create_product_candidate(req: ProductCandidateCreate) -> ProductCandid
         "status": "new",
         "notes": req.notes,
     }
+
     insert_res = supabase_client.table("product_candidates").insert(payload).execute()
-    if not insert_res or not insert_res.data:
+    rows = _response_data(insert_res)
+    if not rows:
         raise HTTPException(status_code=500, detail="Failed to insert product candidate")
-    row = insert_res.data[0]
-    return _row_to_candidate(row)
+    return _row_to_candidate(rows[0])
 
 
 @app.patch("/product-candidates/{candidate_id}", response_model=ProductCandidate)
-async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdate) -> ProductCandidate:
-    """Update the status and/or notes of a product candidate.
-
-    When a candidate is approved, a draft product is automatically
-    created in the ``products`` table using the suggested sale price
-    computed during candidate creation.  The candidate itself remains
-    unchanged except for its status and notes.
-    """
-    payload = {"status": req.status, "notes": req.notes}
-    update_res = (
+def update_product_candidate(candidate_id: int, req: ProductCandidateUpdate) -> ProductCandidate:
+    before_res = (
         supabase_client.table("product_candidates")
-        .update(payload)
+        .select("id,status")
         .eq("id", candidate_id)
+        .single()
         .execute()
     )
-    if not update_res:
-        raise HTTPException(status_code=500, detail="Failed to update candidate")
-    if not update_res.data:
+    before_row = _response_data(before_res)
+    if not before_row:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    candidate_row = update_res.data[0]
-    # If the candidate is now approved, create a draft product
-    if req.status.lower() == "approved":
-        # Fetch the full candidate row to access suggested_sale_price
-        query_res = (
-            supabase_client.table("product_candidates")
-            .select(
-                "id,title,cost_price,suggested_sale_price,score"
-            )
-            .eq("id", candidate_id)
-            .single()
-            .execute()
+
+    payload = {"status": req.status, "notes": req.notes}
+    supabase_client.table("product_candidates").update(payload).eq("id", candidate_id).execute()
+
+    fetch_res = (
+        supabase_client.table("product_candidates")
+        .select(
+            "id,title,source,supplier_url,category,cost_price,suggested_sale_price,score,status,notes,created_at"
         )
-        if query_res and query_res.data:
-            data = query_res.data
-            sale_price = (
-                float(data.get("suggested_sale_price"))
-                if data.get("suggested_sale_price") is not None
-                else float(data["cost_price"]) * 2.8
-            )
-            product_payload = {
-                "title": data["title"],
-                "cost_price": float(data["cost_price"]),
-                "sale_price": sale_price,
-                "score": float(data.get("score")) if data.get("score") is not None else None,
-                "status": "draft",
-            }
-            # Insert the draft product; ignore result if insertion fails
-              supabase_client.table
-            ("products").insert(product_payload).execute()
-
-
-# Order models and endpoints
-class OrderCreate(BaseModel):
-    product_id : int
-    quantity: int
-
-class OrderUpdate(BaseModel):
-    status: str | None = None
-    tracking_code: str | None = None
-
-class Order(BaseModel):
-    id: int
-    product_id: int
-    quantity: int
-    status: str
-    tracking_code: str | None = None
-    created_at: str
-
-def _row_to_order(row: dict) -> Order:
-    return Order(
-        id=row["id"],
-        product_id=row["product_id"],
-        quantity=row["quantity"],
-        status=row["status"],
-        tracking_code=row.get("tracking_code"),
-        created_at=row["created_at"],
+        .eq("id", candidate_id)
+        .single()
+        .execute()
     )
+    candidate_row = _response_data(fetch_res)
+    if not candidate_row:
+        raise HTTPException(status_code=404, detail="Candidate not found after update")
 
-@app.get("/orders")
-def list_orders():
+    previous_status = (before_row.get("status") or "").lower()
+    new_status = req.status.lower()
+
+    if new_status == "approved" and previous_status != "approved":
+        sale_price = (
+            float(candidate_row["suggested_sale_price"])
+            if candidate_row.get("suggested_sale_price") is not None
+            else float(candidate_row["cost_price"]) * 2.8
+        )
+        product_payload = {
+            "title": candidate_row["title"],
+            "cost_price": float(candidate_row["cost_price"]),
+            "sale_price": sale_price,
+            "score": (
+                float(candidate_row["score"])
+                if candidate_row.get("score") is not None
+                else None
+            ),
+            "status": "draft",
+        }
+        supabase_client.table("products").insert(product_payload).execute()
+
+    return _row_to_candidate(candidate_row)
+
+
+@app.get("/suppliers", response_model=list[Supplier])
+def list_suppliers() -> list[Supplier]:
+    response = (
+        supabase_client.table("suppliers")
+        .select("id,name,contact_info,shipping_time_days,reliability_score,created_at")
+        .execute()
+    )
+    rows = _response_data(response)
+    if rows is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch suppliers")
+    return [_row_to_supplier(row) for row in rows]
+
+
+@app.post("/suppliers", response_model=Supplier, status_code=status.HTTP_201_CREATED)
+def create_supplier(req: SupplierCreate) -> Supplier:
+    payload = {
+        "name": req.name,
+        "contact_info": req.contact_info,
+        "shipping_time_days": req.shipping_time_days,
+        "reliability_score": req.reliability_score,
+    }
+    insert_res = supabase_client.table("suppliers").insert(payload).execute()
+    rows = _response_data(insert_res)
+    if not rows:
+        raise HTTPException(status_code=500, detail="Failed to insert supplier")
+    return _row_to_supplier(rows[0])
+
+
+@app.patch("/suppliers/{supplier_id}", response_model=Supplier)
+def update_supplier(supplier_id: int, req: SupplierUpdate) -> Supplier:
+    payload: dict[str, Any] = {}
+
+    if req.name is not None:
+        payload["name"] = req.name
+    if req.contact_info is not None:
+        payload["contact_info"] = req.contact_info
+    if req.shipping_time_days is not None:
+        payload["shipping_time_days"] = req.shipping_time_days
+    if req.reliability_score is not None:
+        payload["reliability_score"] = req.reliability_score
+
+    if not payload:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+
+    supabase_client.table("suppliers").update(payload).eq("id", supplier_id).execute()
+
+    fetch_res = (
+        supabase_client.table("suppliers")
+        .select("id,name,contact_info,shipping_time_days,reliability_score,created_at")
+        .eq("id", supplier_id)
+        .single()
+        .execute()
+    )
+    row = _response_data(fetch_res)
+    if not row:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    return _row_to_supplier(row)
+
+
+@app.get("/orders", response_model=list[Order])
+def list_orders() -> list[Order]:
     res = supabase_client.table("orders").select("*").execute()
-    return [_row_to_order(item) for item in (res.data or [])]
+    rows = _response_data(res)
+    if rows is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch orders")
+    return [_row_to_order(item) for item in rows]
 
-@app.post("/orders")
-def create_order(req: OrderCreate):
+
+@app.post("/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
+def create_order(req: OrderCreate) -> Order:
     new_row = {
         "product_id": req.product_id,
         "quantity": req.quantity,
         "status": "pending",
     }
     res = supabase_client.table("orders").insert(new_row).execute()
-    row = res.data[0]
-    return _row_to_order(row)
-
-@app.patch("/orders/{order_id}")
-def update_order(order_id: int, req: OrderUpdate):
-       
-       update_data: dict = {}
+    rows = _response_data(res)
+    if not rows:
+        raise HTTPException(status_code=500, detail="Failed to create order")
+    return _row_to_order(rows[0])
 
 
+@app.patch("/orders/{order_id}", response_model=Order)
+def update_order(order_id: int, req: OrderUpdate) -> Order:
+    update_data: dict[str, Any] = {}
 
     if req.status is not None:
         update_data["status"] = req.status
     if req.tracking_code is not None:
         update_data["tracking_code"] = req.tracking_code
-    if update_data:
-        supabase_client.table("orders").update(update_data).eq("id", order_id).execute()
-    updated = (
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No update fields provided")
+
+    supabase_client.table("orders").update(update_data).eq("id", order_id).execute()
+
+    fetch_res = (
         supabase_client.table("orders")
         .select("*")
         .eq("id", order_id)
         .single()
         .execute()
-        .data
     )
+    updated = _response_data(fetch_res)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Order not found")
+
     return _row_to_order(updated)
 
  
