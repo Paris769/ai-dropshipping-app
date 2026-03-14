@@ -246,10 +246,15 @@ async def list_products() -> List[Product]:
         supabase_client.table("products")
         .select("id,title,cost_price,sale_price,score,status")
         .execute()
-    )         if not response or response.data is None:
-            raise HTTPException(status_code=500, detail="Failed to fetch products")
-        rows = response.data or []
-        return [_row_to_product(row) for row in rows]CreateProductRequest) -> Product:
+    )
+    if response.error:
+        raise HTTPException(status_code=500, detail=str(response.error))
+    rows = response.data or []
+    return [_row_to_product(row) for row in rows]
+
+
+@app.post("/products", response_model=Product, status_code=status.HTTP_201_CREATED)
+async def create_product(req: CreateProductRequest) -> Product:
     """Create a new product in the database."""
     payload = {
         "title": req.title,
@@ -405,7 +410,8 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
                 "status": "draft",
             }
             # Insert the draft product; ignore result if insertion fails
-             supabase_client.table("products").insert(product_payload).execute()
+              supabase_client.table
+            ("products").insert(product_payload).execute()
 
 
 # Order models and endpoints
@@ -475,5 +481,4 @@ def update_order(order_id: int, req: OrderUpdate):
     return _row_to_order(updated)
 
  
-
 
