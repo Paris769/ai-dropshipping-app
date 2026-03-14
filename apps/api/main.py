@@ -127,8 +127,10 @@ class Order(BaseModel):
     created_at: str
 
 
+
 def _response_data(response: Any) -> Any:
     return getattr(response, "data", None)
+
 
 
 def score_candidate(cost_price: float, category: str | None, title: str) -> tuple[int, float]:
@@ -159,6 +161,7 @@ def score_candidate(cost_price: float, category: str | None, title: str) -> tupl
     return score, suggested_sale_price
 
 
+
 def _row_to_product(row: dict[str, Any]) -> Product:
     return Product(
         id=row["id"],
@@ -169,6 +172,7 @@ def _row_to_product(row: dict[str, Any]) -> Product:
         status=row.get("status"),
         supplier_id=row.get("supplier_id"),
     )
+
 
 
 def _row_to_candidate(row: dict[str, Any]) -> ProductCandidate:
@@ -191,6 +195,7 @@ def _row_to_candidate(row: dict[str, Any]) -> ProductCandidate:
     )
 
 
+
 def _row_to_supplier(row: dict[str, Any]) -> Supplier:
     return Supplier(
         id=row["id"],
@@ -206,6 +211,7 @@ def _row_to_supplier(row: dict[str, Any]) -> Supplier:
     )
 
 
+
 def _row_to_order(row: dict[str, Any]) -> Order:
     return Order(
         id=row["id"],
@@ -215,6 +221,7 @@ def _row_to_order(row: dict[str, Any]) -> Order:
         tracking_code=row.get("tracking_code"),
         created_at=row["created_at"],
     )
+
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -493,6 +500,3 @@ def update_order(order_id: int, req: OrderUpdate) -> Order:
         raise HTTPException(status_code=404, detail="Order not found")
 
     return _row_to_order(updated)
-
- 
-
