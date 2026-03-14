@@ -410,8 +410,7 @@ async def update_product_candidate(candidate_id: int, req: ProductCandidateUpdat
                 "status": "draft",
             }
             # Insert the draft product; ignore result if insertion fails
-              supabase_client.table
-            ("products").insert(product_payload).execute()
+             supabase_client.table("products").insert(product_payload).execute()
 
 
 # Order models and endpoints
